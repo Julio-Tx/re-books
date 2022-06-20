@@ -1,0 +1,18 @@
+export default interface ProductType {
+  id: string,
+  name: string,
+  rating: number,
+  title: string,
+  info: string,
+  imgSmall: string[],
+  imgLarge: string[],
+  imgSrc: string,
+  priceWhole: string,
+  priceFraction: string,
+  linkTitle: string,
+  brand: string,
+  color: string,
+  weight: string,
+  description: string,
+  nameOfProduct: string,
+  };
