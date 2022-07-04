@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { toast } from 'react-toastify';
 import {
-  query, collection, getDocs, where, updateDoc, doc, arrayUnion
+  query, collection, getDocs, where, updateDoc, doc, arrayUnion, addDoc, arrayRemove
 } from 'firebase/firestore';
 import { ref, uploadBytes, listAll, getDownloadURL } from 'firebase/storage';
 import { v4 } from 'uuid';
@@ -21,21 +21,73 @@ function User() {
   const [email, setEmail] = useState('');
   const [books, setBooks] = useState([]);
   const [bookName, setBookName] = useState('');
+  const [bookDescription, setBookDescription] = useState('');
+  const [bookPrice, setBookPrice] = useState('');
+  const [bookId, setBookId] = useState('');
+  const [newBookName, setNewBookName] = useState('');
+  const [newBookDescription, setNewBookDescription] = useState('');
+  const [newBookPrice, setNewBookPrice] = useState('');
   const [user, loading] = useAuthState(auth);
   const [image, setImage] = useState<FileList | null>(null);
   const [imageList, setImageList] = useState<Array<string>>([]);
   const [updateClicked, setUpdateClicked] = useState(false);
+  const [bookSelected, setBookSelected] = useState(false);
+  const [bookSelect, setBookSelect] = useState('');
+  const [addNewBook, setAddNewBook] = useState(false);
 
   const addBook = async () => {
-    if(bookName === '') return;
+    if(bookName === '') {
+      toast.error('Nome não pode estar vazio.');
+      return;
+    };
     const userDoc = doc(db, 'users', id);
     const newFields = {books: arrayUnion(bookName)};
-    await updateDoc(userDoc, newFields);
+    
+    const booksCollectionRef = collection(db, 'books');
+    try {
+      await updateDoc(userDoc, newFields);
+      await addDoc(booksCollectionRef, {id: v4(), name: bookName, description: bookDescription, price: bookPrice, owner: email})
+    } catch (err: any) {
+      toast.error(err);
+      console.log(err.message);
+    }
+
+    uploadImage();
+    navigate(0);
   }
-  const uploadImage = (book: string) => {
+  const updateBook = async () => {
+    if(bookName === '') {
+      toast.error('Nome não pode estar vazio.');
+      return;
+    };
+    console.log(bookId);
+
+    const userDoc = doc(db, 'users', id);
+    const deleteFields = {books: arrayRemove(bookName)};
+    const newFields = {books: arrayUnion(newBookName)};
+    
+    const bookDoc = doc(db, 'books', bookId);
+    const newBookFields = { name: newBookName, description: newBookDescription, price: newBookPrice}
+    try {
+      await updateDoc(userDoc, deleteFields);
+      await updateDoc(userDoc, newFields);
+      await updateDoc(bookDoc, { 'name': newBookName, 'description': newBookDescription, 'price': newBookPrice});
+    } catch (err: any) {
+      toast.error(err);
+      console.log(err.message);
+    }
+    // if(imageList.length <= 3) {
+    //   uploadImage();
+    // }
+    // else {
+    //   toast.error('Apenas 3 imagens podem ser enviadas.');
+    // }
+  }
+
+  const uploadImage = () => {
       if (image === null) return
 
-      const imageRef = ref(storage, `${email}/books/${bookName}/${image[0].name + v4()}`)
+      const imageRef = ref(storage, `${email}/books/${bookId}/${image[0].name + v4()}`)
       uploadBytes(imageRef, image[0]).then((snapshot)=> {
         getDownloadURL(snapshot.ref).then((url) => {
           setImageList((prev) => [...prev, url]);
@@ -46,19 +98,40 @@ function User() {
       setUpdateClicked(false);
     }
     
-  const getImages = (book: string) => {
+  const getBookData = async (book: string) => {
     console.log(book);
-    const imageListRef = ref(storage, `${email}/books/${book}/`)
+    const imageListRef = ref(storage, `${email}/books/${book}/`);
+
+    if(book !== '0') {
+      const bookQuery = query(collection(db, 'books'), where('name', '==', book));
+      const bookDoc = await getDocs(bookQuery);
+      const bookData = bookDoc.docs[0].data();
+      console.log(bookData);
+      setBookName(bookData.name);
+      setBookDescription(bookData.description);
+      setBookPrice(parseFloat(bookData.price).toFixed(2));
+      setBookId(bookDoc.docs[0].id);
+      setBookSelected(true);
+    } else {
+      setBookName('');
+      setBookDescription('');
+      setBookPrice('');
+      setBookSelected(false);
+    }
 
     listAll(imageListRef).then((response) => {
       response.items.forEach((item) => {
         getDownloadURL(item).then((url) => {
-          setImageList((prev) => [...prev, url]);
+          setImageList(() => [url]);
         })
       })
     });
     if(book === '0') setImageList([]);
-    setBookName(book);
+  }
+
+  const getUpdateClicked = () => {
+    if (bookName !== '') setUpdateClicked(true);
+    else toast.error('Selecione um livro para atualizar.');
   }
   useEffect(() => {
     if (loading) return;
@@ -77,7 +150,15 @@ function User() {
     };
     if (loading) return;
     fetchUserName();
-  }, [user, loading, navigate]);
+    
+    if (updateClicked) {
+      setNewBookName(bookName);
+      setNewBookDescription(bookDescription);
+      setNewBookPrice(bookPrice);
+    }
+    if (bookSelect !== '0') getBookData(bookSelect);
+    
+  }, [user, loading, navigate, imageList, updateClicked, bookSelect]);
 
   return (
     <div>
@@ -88,52 +169,74 @@ function User() {
         <Form>
           <p className="title">Olá {name}</p>
           <p>Seus dados são:</p>
-          <p>Email: {email}</p>
-          <p>Seus livros:</p>
-          <select onChange={(e) => getImages(e.target.value)}>
-            <option value={'0'}>Selecione um livro</option>
-            {books.map((book) => {
-              return <option value={book}>{book}</option>
-            })}
-          </select>
-          <div className='book-images'>
-            {imageList.map((url, index) => {
-              return <img key={index} src={url} alt={url} />
-            })}
-          </div>
-          {updateClicked ?
+          <p>Nome:</p>
+          <span>{name}</span>
+          <p>Email:</p>
+          <span>{email}</span>
+          
+          {addNewBook ?
             <>
-            <p>Adicionar novas imagens:</p>
+            <p></p>
+            <button type="button" className='back-button' onClick={() => setAddNewBook(false)}>Voltar</button>
+            <h3>Adicionar novo livro</h3>
+            <input type='text' placeholder='Nome' onChange={(e) => setBookName(e.target.value)} />
+            <textarea placeholder='Descrição' onChange={(e) => setBookDescription(e.target.value)} />
+            <input type='text' placeholder='Preço' onChange={(e) => setBookPrice(e.target.value)} />
             <input type='file' onChange={(e) => setImage(e.target.files)} />
-            <button type="button" onClick={() => uploadImage(bookName)}>Upload image</button>
-            </>
-            
-          : 
-          <>
-            <button type='button' onClick={() => setUpdateClicked(true)}>Update Book</button>
-            <p>Adicionar novo livro</p>
-            <input type='text' placeholder='Novo livro' onChange={(e) => setBookName(e.target.value)} />
             <button type="button" onClick={addBook}>Enviar livro</button>
-          </>
-          }
-          
-          
+            </>
 
-          <p className="privacy">
-            Ao criar uma conta, aceita as <FakeLink>Condições de Uso</FakeLink>{' '}
-            e o <FakeLink>Aviso de Privacidade</FakeLink> da Amazon.
-          </p>
-          <div className="divider" />
-          <div className="footer">
-            <span>
-              Já tem uma conta? <Link to="/login">Iniciar sessão</Link>
-            </span>
-            <br />
-            <span>
-              A fazer compras para fins profissionais?{' '}
-              <FakeLink>Crie uma conta de empresa grátis</FakeLink>
-            </span>
-          </div>
+            :
+
+            <>
+              {updateClicked ?
+              <>
+              <p></p>
+              <button type="button" className='back-button' onClick={() => setUpdateClicked(false)}>Voltar</button>
+              <h3>Atualizar livro</h3>
+              <input type='text' placeholder='Nome' value={newBookName} onChange={(e) => setNewBookName(e.target.value)} />
+              <input type='text' className='desc-input' placeholder='Descrição' value={newBookDescription} onChange={(e) => setNewBookDescription(e.target.value)} />
+              <input type='text' placeholder='Preço' value={newBookPrice} onChange={(e) => setNewBookPrice(e.target.value)} />
+              <input type='file' onChange={(e) => setImage(e.target.files)} />
+              <button type="button" onClick={updateBook}>Salvar</button>
+              </>
+                
+              : 
+
+              <div>
+                <p>Seus livros:</p>
+                <select className='select' onChange={(e) => setBookSelect(e.target.value)}>
+                  <option value={'0'}>Selecione um livro</option>
+                  {books.map((book) => {
+                    return <option key={book} value={book}>{book}</option>
+                  })}
+                </select>
+
+                {bookSelected ? 
+                  <div className="book-data">
+                    <p>Nome:</p>
+                    <p className='desc'>{bookName}</p>
+                    <p>Descrição:</p>
+                    <p className='desc'>{bookDescription}</p>
+                    <p>Preço:</p>
+                    <p className='desc'>{bookPrice} €</p>
+                    <p>Imagens:</p>
+                    <div className='book-images'>
+                      {imageList.map((url, index) => {
+                        return <img key={index} src={url? url : ''} alt={url} />
+                      })}
+                    </div>
+                    <button type='button' className='back-button' onClick={getUpdateClicked}>Update Book</button>
+                  </div>
+
+                  : 
+                  <></>
+                }
+              </div>
+              }
+              <button className='add-button' onClick={() => setAddNewBook(true)}>Adicionar novo livro</button>
+            </>
+          }
         </Form>
       </Container>
     </div>

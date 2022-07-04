@@ -51,7 +51,7 @@ const registerWithEmailAndPassword = async (name, email, password) => {
       name,
       authProvider: 'local',
       email,
-      books: {},
+      books: [],
     });
   } catch (err) {
     toast.error(err);
